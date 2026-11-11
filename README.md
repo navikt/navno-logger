@@ -23,9 +23,8 @@ logger.info('Listening on port', 3001);
 logger.error('Search failed', { status: 500 }, err);
 ```
 
-::: note
-`LOG_LEVEL` sets the lowest level written - which is `info` by default.
-:::
+> [!NOTE]
+> `LOG_LEVEL` sets the lowest level written - which is `info` by default.
 
 ## Output
 
