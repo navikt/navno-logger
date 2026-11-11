@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Lint, test and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: navikt/navno-actions/setup-node-pnpm@v1
+        with:
+          reader-token: ${{ secrets.READER_TOKEN }}
+
+      - run: pnpm run lint
+
+      - run: pnpm test
+
+      - run: pnpm run build

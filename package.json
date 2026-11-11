@@ -1,0 +1,52 @@
+{
+	"name": "@navikt/navno-logger",
+	"version": "1.0.0",
+	"description": "Logging for the navno team's Node servers: pino set up for NAIS, called like console and readable in development",
+	"license": "MIT",
+	"repository": "navikt/navno-logger",
+	"files": [
+		"dist"
+	],
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.mts",
+			"import": "./dist/index.mjs"
+		}
+	},
+	"publishConfig": {
+		"registry": "https://npm.pkg.github.com"
+	},
+	"scripts": {
+		"dev": "LOG_LEVEL=debug node --watch demo.ts",
+		"build": "tsdown",
+		"lint": "oxfmt --check && oxlint && tsc --noEmit",
+		"format": "oxfmt",
+		"test": "node --test \"src/**/*.test.ts\""
+	},
+	"dependencies": {
+		"pino": "^10.4.0"
+	},
+	"devDependencies": {
+		"@opentelemetry/api": "1.10.0",
+		"@types/node": "26.6.5",
+		"oxfmt": "0.75.0",
+		"oxlint": "1.90.0",
+		"oxlint-tsgolint": "7.0.2005",
+		"pino-pretty": "13.2.0",
+		"tsdown": "0.22.14",
+		"typescript": "6.0.3"
+	},
+	"peerDependencies": {
+		"pino-pretty": ">=13"
+	},
+	"peerDependenciesMeta": {
+		"pino-pretty": {
+			"optional": true
+		}
+	},
+	"engines": {
+		"node": ">=24"
+	},
+	"packageManager": "pnpm@12.18.0+sha512.9d7882d5dc82147ecfc4e062aa34834e0ad0296710a1837a1115ae012127d36b7109e321ac1598a1dd0a65597681b1e99917e12ed0d749eae91187943363beb3"
+}
