@@ -1,6 +1,6 @@
 {
 	"name": "@navikt/navno-logger",
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"description": "Logging for the navno team's Node servers: pino set up for NAIS, called like console and readable in development",
 	"license": "MIT",
 	"repository": "navikt/navno-logger",
@@ -29,6 +29,7 @@
 	},
 	"devDependencies": {
 		"@opentelemetry/api": "1.10.0",
+		"@opentelemetry/core": "3.1.0",
 		"@types/node": "26.6.5",
 		"oxfmt": "0.75.0",
 		"oxlint": "1.90.0",

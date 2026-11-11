@@ -76,16 +76,26 @@ const prettyStream = async () => {
 // We read the Nais copy of @opentelemetry/api so we don't have to keep some NPM package in sync with theirs
 const REGISTRY = Symbol.for('opentelemetry.js.api.1');
 const SPAN = Symbol.for('OpenTelemetry Context Key SPAN');
+const REQUEST = Symbol.for('OpenTelemetry SDK Context Key RPC_METADATA');
 type SpanContext = { traceId: string; spanId: string; traceFlags: number };
-type Registry = { context?: { active(): { getValue(key: symbol): { spanContext(): SpanContext } | undefined } } };
+type Registry = { context?: { active(): { getValue(key: symbol): unknown } } };
+
+// What the Nais agent keeps under a key for the request being handled, if anything
+const fromAgent = (key: symbol) => (globalThis as { [REGISTRY]?: Registry })[REGISTRY]?.context?.active().getValue(key);
 
 // Makes request traces work in Grafana, whenever the Nais agent has a span open
 const traceIds = () => {
-	const registry = (globalThis as { [REGISTRY]?: Registry })[REGISTRY];
-	const span = registry?.context?.active().getValue(SPAN)?.spanContext();
+	const span = (fromAgent(SPAN) as { spanContext(): SpanContext } | undefined)?.spanContext();
 	// All zeros means a span that belongs to no trace
 	if (!span || /^0+$/.test(span.traceId) || /^0+$/.test(span.spanId)) return {};
 	return { trace_id: span.traceId, span_id: span.spanId, trace_flags: `0${span.traceFlags.toString(16)}` };
+};
+
+// Fixes OTel in Hono so span route-names work.
+// - example: app.use(async (c, next) => { await next(); traceRoute(routePath(c)); });
+export const traceRoute = (route: string) => {
+	const request = fromAgent(REQUEST) as { route?: string } | undefined;
+	if (request) request.route = route;
 };
 
 // Copied from @navikt/pino-logger to avoid one more peer-dep
@@ -103,5 +113,7 @@ export const logger: Logger = pino(
 			},
 		},
 	},
-	process.env.NODE_ENV === 'production' ? undefined : await prettyStream()
+	// JSON in a production build and in any pod on Nais, which always sets NAIS_CLUSTER_NAME. Pretty otherwise.
+	// NODE_ENV is first so a bundler that sets it can drop pino-pretty
+	process.env.NODE_ENV === 'production' || process.env.NAIS_CLUSTER_NAME ? undefined : await prettyStream()
 );

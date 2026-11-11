@@ -3,7 +3,35 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { describe, test } from 'node:test';
-import { toPinoArgs } from './index.ts';
+import { context, type ContextManager, ROOT_CONTEXT, trace } from '@opentelemetry/api';
+import { getRPCMetadata, RPCType, setRPCMetadata } from '@opentelemetry/core';
+import { toPinoArgs, traceRoute } from './index.ts';
+
+describe('traceRoute', () => {
+	test('does nothing where no agent is handling a request', () => {
+		assert.doesNotThrow(() => traceRoute('/sok/api/search'));
+	});
+
+	test("sets the route on what the agent's HTTP instrumentation keeps for the request", () => {
+		// That, made with the real packages: a change in where they keep it fails here
+		const span = trace.wrapSpanContext({
+			traceId: '0af7651916cd43dd8448eb211c80319c',
+			spanId: 'b7ad6b7169203331',
+			traceFlags: 1,
+		});
+		const request = setRPCMetadata(ROOT_CONTEXT, { type: RPCType.HTTP, span });
+		// A context manager that is always in that request, where the agent's follows the code that runs
+		const manager = { active: () => request, disable: () => undefined };
+		context.setGlobalContextManager(manager as unknown as ContextManager);
+
+		try {
+			traceRoute('/sok/api/search');
+			assert.equal(getRPCMetadata(request)?.route, '/sok/api/search');
+		} finally {
+			context.disable();
+		}
+	});
+});
 
 describe('toPinoArgs', () => {
 	const err = new Error('socket hang up');
@@ -92,6 +120,18 @@ describe('logger', () => {
 		assert.equal(error.status, 500);
 		assert.equal(error.err.message, 'socket hang up');
 		assert.match(error.stack, /^Error: socket hang up\n {4}at /);
+	});
+
+	test('writes JSON in a pod on Nais, whatever NODE_ENV is', () => {
+		const pods: Record<string, string>[] = [
+			{ NAIS_CLUSTER_NAME: 'prod-gcp' },
+			{ NAIS_CLUSTER_NAME: 'dev-gcp', NODE_ENV: 'development' },
+		];
+		for (const env of pods) {
+			const [info] = run(env).split('\n');
+
+			assert.equal(JSON.parse(info).message, 'Listening on port 3001');
+		}
 	});
 
 	test('adds the trace IDs of the span that is open', () => {
