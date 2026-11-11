@@ -1,8 +1,11 @@
 # navno-logger
 
-Logging for the navno team's Node servers: [pino](https://getpino.io) set up for NAIS, called like `console` and
-readable in development. The setup is the one in [`@navikt/pino-logger`](https://github.com/navikt/next-logger),
-so check there when NAIS changes what it expects of logs.
+Logging in dev and Nais with bonus features:
+
+- Automatic pino-pretty in dev
+- Automatic Nais-contract logging when deployed
+- Cleaner stack traces
+- `console.log` compatible log-calls instead of Pino's
 
 ## Install
 
@@ -10,9 +13,6 @@ so check there when NAIS changes what it expects of logs.
 pnpm add @navikt/navno-logger
 pnpm add -D pino-pretty
 ```
-
-`@navikt` packages come from GitHub Packages, so `.npmrc` needs `@navikt:registry=https://npm.pkg.github.com`.
-`pino-pretty` is optional: without it, the development logs are JSON too.
 
 ## Use
 
@@ -23,16 +23,13 @@ logger.info('Listening on port', 3001);
 logger.error('Search failed', { status: 500 }, err);
 ```
 
-There is `debug`, `info`, `warn` and `error`. Each takes text, objects and errors in any order: the text becomes the
-message, the objects' properties become fields, and an error is logged under `err`. `LOG_LEVEL` sets the lowest
-level written, `info` by default.
-
-Keep the message a fixed string and put what varies in a field. Nais APM groups errors by their message, so a
-message with an ID in it becomes one issue per ID.
+::: note
+`LOG_LEVEL` sets the lowest level written - which is `info` by default.
+:::
 
 ## Output
 
-With `NODE_ENV=production`, one JSON line per call, in the shape Loki and Nais APM parse. Spread out here to read:
+When `NODE_ENV=production`, one JSON line per call, in the shape Loki and Nais APM parse.
 
 ```json
 {
@@ -47,9 +44,7 @@ With `NODE_ENV=production`, one JSON line per call, in the shape Loki and Nais A
 }
 ```
 
-The stack is at the top level as well as under `err`, because that is where the Issues tab in Nais APM reads it.
-
-Anywhere else, readable lines:
+When running locally readable lines:
 
 ```
 22:34:16 WARN: Invalid search-url term
@@ -57,12 +52,6 @@ Anywhere else, readable lines:
     status: 500
     facet: "privatperson"
 ```
-
-Every stack is cleaned up, in production too: Node's own frames are left out, and the paths are relative to the
-working directory. The readable lines also dim the frames from `node_modules`; the JSON never has colours.
-
-A server build that bundles its dependencies leaves `pino-pretty` out, as long as the bundler replaces
-`process.env.NODE_ENV` with `"production"` (Vite: `define`).
 
 ## Trace IDs
 
