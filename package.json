@@ -19,6 +19,8 @@
 	},
 	"scripts": {
 		"dev": "LOG_LEVEL=debug node --watch demo.ts",
+		"dev:pino": "LOG_LEVEL=debug node demo-vanilla-pino.ts",
+		"dev:pretty": "LOG_LEVEL=debug node demo-vanilla-pino.ts | pino-pretty",
 		"build": "tsdown",
 		"lint": "oxfmt --check && oxlint && tsc --noEmit",
 		"format": "oxfmt",

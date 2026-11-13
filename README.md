@@ -71,6 +71,10 @@ fails here first.
 `pnpm dev` prints a sample of every level through the logger, and prints it again when `demo.ts` or
 `src/index.ts` is saved.
 
+To compare with plain pino, `demo-vanilla-pino.ts` runs the same scenarios written the way pino wants them
+(`(object, message)`, errors under `err`): `pnpm dev:pino` prints raw JSON, `pnpm dev:pretty` pipes it through
+pino-pretty.
+
 ## Release
 
 Bump `version` in `package.json` in a pull request. Merging it to main publishes that version to GitHub Packages.

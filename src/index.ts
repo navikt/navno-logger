@@ -36,11 +36,21 @@ export const toPinoArgs = (args: unknown[]): [Record<string, unknown>, string] =
 	return [fields, text.join(' ')];
 };
 
-// Highlights the app's own stack in dev so it's easier to read
-const withDimmedDependencies = (key: string, value: unknown) =>
-	key === 'stack' && typeof value === 'string'
-		? value.replaceAll(/^.*node_modules\/.*$/gm, (frame) => styleText('dim', frame))
-		: value;
+// Prints an error like Node would, with colors:
+// - the name and message stand out
+// - dependency frames are dimmed so the app's own frames are easy to find
+// - `caused by` lines get their own color
+// - extra properties (code, status, ...) are shown like any other object attribute
+const prettifyError = (err: unknown) => {
+	const { type, message, stack, ...props } = err as { type?: string; message?: string; stack?: string };
+	const lines = (stack ?? `${type}: ${message}`).split('\n').map((line) => {
+		if (/^\s+at /.test(line)) return /node_modules\//.test(line) ? styleText(['dim', 'italic'], line) : line;
+		if (line.startsWith('caused by:')) return styleText(['yellow', 'italic'], line);
+		return styleText(['red', 'bold'], line);
+	});
+	const extras = Object.entries(props).map(([key, value]) => `${styleText('cyan', key)}: ${JSON.stringify(value)}`);
+	return [...lines, ...extras].join('\n');
+};
 
 // Help pino-pretty suck less
 const PRETTY_OPTIONS: PrettyOptions = {
@@ -53,7 +63,7 @@ const PRETTY_OPTIONS: PrettyOptions = {
 	customPrettifiers: {
 		// Dim the time, it's rare we care what time it was in dev
 		time: (time) => styleText('dim', time as string),
-		err: (err) => JSON.stringify(err, withDimmedDependencies, 2),
+		err: prettifyError,
 	},
 	// Fix some of pino-pretty's bonkers text color choices
 	customColors: {
