@@ -52,6 +52,23 @@ When running locally readable lines:
     facet: "privatperson"
 ```
 
+## In tests
+
+Under Vitest (which sets `VITEST`), the logger calls `console.debug`, `.info`, `.warn` and `.error` with the
+arguments as given, instead of writing through pino. Vitest catches console per test, so `silent: 'passed-only'`
+shows the logs of a test that fails and hides the rest:
+
+```ts
+// vitest.config.ts
+export default defineConfig({ test: { silent: 'passed-only' } });
+```
+
+`LOG_LEVEL` still sets the lowest level written, and `vi.spyOn(logger, 'error')` works as before. There is no JSON
+or pino-pretty output under Vitest, whatever `NODE_ENV` is.
+
+A process started from a test inherits `VITEST`, so a server spawned there logs through console as well. Leave
+`VITEST` out of its env to get the usual output.
+
 ## Trace IDs
 
 `trace_id` and `span_id` come from the active OpenTelemetry span, which the NAIS agent creates when the app has

@@ -108,22 +108,44 @@ export const traceRoute = (route: string) => {
 	if (request) request.route = route;
 };
 
+// Under Vitest: console, which Vitest holds back per test, so `silent: 'passed-only'` shows a failing test's logs
+// and hides the rest. pino writes past console, where Vitest can't tell which test a line came from.
+// - console is looked up on each call, since Vitest swaps it in after modules may have loaded
+// - the arguments are passed on as given, for Vitest to print
+// - a pino that writes nowhere says what the level lets through, so the level means what it does in production:
+//   'trace' writes all, 'fatal' or 'silent' none of these, and a level pino doesn't know throws
+const consoleLogger = (level: string): Logger => {
+	const levels = pino({ level }, { write: () => {} });
+	const write = (name: keyof Logger): Log =>
+		levels.isLevelEnabled(name) ? (...args) => console[name](...args) : () => {};
+	return { debug: write('debug'), info: write('info'), warn: write('warn'), error: write('error') };
+};
+
 // Copied from @navikt/pino-logger to avoid one more peer-dep
-export const logger: Logger = pino(
-	{
-		messageKey: 'message',
-		timestamp: pino.stdTimeFunctions.isoTime,
-		formatters: { level: (label) => ({ level: label }) },
-		level: process.env.LOG_LEVEL || 'info',
-		mixin: traceIds,
-		serializers: { err: serializeError },
-		hooks: {
-			logMethod(args, method) {
-				method.call(this, ...toPinoArgs(args));
+const pinoLogger = (level: string, destination?: pino.DestinationStream): Logger =>
+	pino(
+		{
+			messageKey: 'message',
+			timestamp: pino.stdTimeFunctions.isoTime,
+			formatters: { level: (label) => ({ level: label }) },
+			level,
+			mixin: traceIds,
+			serializers: { err: serializeError },
+			hooks: {
+				logMethod(args, method) {
+					method.call(this, ...toPinoArgs(args));
+				},
 			},
 		},
-	},
-	// JSON in a production build and in any pod on Nais, which always sets NAIS_CLUSTER_NAME. Pretty otherwise.
-	// NODE_ENV is first so a bundler that sets it can drop pino-pretty
-	process.env.NODE_ENV === 'production' || process.env.NAIS_CLUSTER_NAME ? undefined : await prettyStream()
-);
+		destination
+	);
+
+const level = process.env.LOG_LEVEL || 'info';
+
+// JSON in a production build and in any pod on Nais, which always sets NAIS_CLUSTER_NAME. Pretty otherwise.
+// NODE_ENV is first so a bundler that sets it can drop pino-pretty
+const destination = async () =>
+	process.env.NODE_ENV === 'production' || process.env.NAIS_CLUSTER_NAME ? undefined : prettyStream();
+
+// Vitest sets VITEST in its workers
+export const logger: Logger = process.env.VITEST ? consoleLogger(level) : pinoLogger(level, await destination());

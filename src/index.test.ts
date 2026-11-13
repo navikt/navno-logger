@@ -220,3 +220,58 @@ describe('logger', () => {
 		assert.equal(run({ NODE_ENV: 'production', LOG_LEVEL: 'silent' }), '');
 	});
 });
+
+// With VITEST set the logger calls console instead of pino: consoleLogger in index.ts says why
+describe('logger under Vitest', () => {
+	// Vitest makes a Console of its own to record what a test logs. Here one takes the place of the global after the
+	// logger has loaded, so a logger that kept hold of the console it loaded with would record nothing
+	const LOG = `
+		const { logger } = await import('./src/index.ts');
+		const calls = [];
+		const record = (level) => (...args) =>
+			calls.push([level, ...args.map((arg) => (arg instanceof Error ? 'Error: ' + arg.message : arg))]);
+		globalThis.console = Object.fromEntries(['debug', 'info', 'warn', 'error', 'log'].map((level) => [level, record(level)]));
+		logger.debug('Cache miss', { key: 'a' });
+		logger.info('Listening on port', 3001);
+		logger.warn('Slow answer', { ms: 900 });
+		logger.error('Search failed', { status: 500 }, new Error('socket hang up'));
+		process.stdout.write(JSON.stringify(calls));
+	`;
+	const run = (env: Record<string, string>) =>
+		JSON.parse(
+			execFileSync(process.execPath, ['--input-type=module', '--eval', LOG], {
+				env: { PATH: process.env.PATH, VITEST: 'true', ...env },
+				encoding: 'utf-8',
+				// Keeps what a failing run writes to stderr in the error thrown here, and out of the test output
+				stdio: 'pipe',
+			})
+		);
+
+	test("calls console's method for the level, with the arguments as given", () => {
+		assert.deepEqual(run({}), [
+			['info', 'Listening on port', 3001],
+			['warn', 'Slow answer', { ms: 900 }],
+			['error', 'Search failed', { status: 500 }, 'Error: socket hang up'],
+		]);
+	});
+
+	test('does so in production builds too, since the tests are what runs', () => {
+		assert.equal(run({ NODE_ENV: 'production' }).length, 3);
+	});
+
+	test('LOG_LEVEL sets the lowest level written', () => {
+		assert.deepEqual(
+			run({ LOG_LEVEL: 'debug' }).map(([level]: string[]) => level),
+			['debug', 'info', 'warn', 'error']
+		);
+		assert.deepEqual(
+			run({ LOG_LEVEL: 'error' }).map(([level]: string[]) => level),
+			['error']
+		);
+		assert.deepEqual(run({ LOG_LEVEL: 'silent' }), []);
+	});
+
+	test('a level pino does not know throws, as it does in production', () => {
+		assert.throws(() => run({ LOG_LEVEL: 'loud' }), /default level:loud must be included in custom levels/);
+	});
+});
