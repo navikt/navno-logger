@@ -1,40 +1,68 @@
-import { pathToFileURL } from 'node:url';
 import { styleText } from 'node:util';
 import pino from 'pino';
 import type { PrettyOptions } from 'pino-pretty';
+import { serializeError, toPinoArgs } from './args.ts';
 
+// What consumers see when they hover a method, so each says how a call becomes a line
 type Log = (...args: unknown[]) => void;
-export type Logger = Record<'debug' | 'info' | 'warn' | 'error', Log>;
 
-// Make stacks easier to read:
-// - Node's own frames left out
-// - paths relative to where the server runs
-const cleanStack = (stack = '') => {
-	const here = `${process.cwd()}/`;
-	return stack
-		.replaceAll(pathToFileURL(here).href, '')
-		.replaceAll(here, '')
-		.split('\n')
-		.filter((line) => !/^\s+at .*\bnode:[\w/-]+:\d+:\d+\)?$/.test(line))
-		.join('\n');
-};
-
-const serializeError = (err: unknown) => {
-	const serialized = pino.stdSerializers.err(err as Error);
-	return serialized?.stack ? { ...serialized, stack: cleanStack(serialized.stack) } : serialized;
-};
-
-// Make pino more ergonomic by supporting `console.log` style args
-export const toPinoArgs = (args: unknown[]): [Record<string, unknown>, string] => {
-	const fields: Record<string, unknown> = {};
-	const text: unknown[] = [];
-	for (const arg of args) {
-		if (arg instanceof Error) Object.assign(fields, { err: arg, stack: serializeError(arg).stack });
-		else if (typeof arg === 'object' && arg !== null) Object.assign(fields, arg);
-		else text.push(arg);
-	}
-	return [fields, text.join(' ')];
-};
+/**
+ * pino's levels, called like `console`: `logger.error('Search failed', { status: 500 }, err)`.
+ *
+ * Writes JSON lines for Nais in production, readable lines in development, and calls `console` under Vitest.
+ * `LOG_LEVEL` sets the lowest level written, `info` by default.
+ */
+export interface Logger {
+	/**
+	 * Logs at `trace`, the lowest level, only written when `LOG_LEVEL=trace`.
+	 * Called like `console.log`: text becomes the message (a first string with `%s`, `%d`, … is a format string),
+	 * the keys of `{…}` objects become fields, and an `Error` goes under `err` with a cleaned-up stack.
+	 *
+	 * @example logger.trace('Answer from search', { body });
+	 */
+	trace: Log;
+	/**
+	 * Logs at `debug`, only written when `LOG_LEVEL` is `debug` or `trace`.
+	 * Called like `console.log`: text becomes the message (a first string with `%s`, `%d`, … is a format string),
+	 * the keys of `{…}` objects become fields, and an `Error` goes under `err` with a cleaned-up stack.
+	 *
+	 * @example logger.debug('Cache hit', { key: 'offices' });
+	 */
+	debug: Log;
+	/**
+	 * Logs at `info`, the lowest level written by default.
+	 * Called like `console.log`: text becomes the message (a first string with `%s`, `%d`, … is a format string),
+	 * the keys of `{…}` objects become fields, and an `Error` goes under `err` with a cleaned-up stack.
+	 *
+	 * @example logger.info('Listening on port', 3001);
+	 */
+	info: Log;
+	/**
+	 * Logs at `warn`.
+	 * Called like `console.log`: text becomes the message (a first string with `%s`, `%d`, … is a format string),
+	 * the keys of `{…}` objects become fields, and an `Error` goes under `err` with a cleaned-up stack.
+	 *
+	 * @example logger.warn('No office found for postnr', { postnr });
+	 */
+	warn: Log;
+	/**
+	 * Logs at `error`.
+	 * Called like `console.log`: text becomes the message (a first string with `%s`, `%d`, … is a format string),
+	 * the keys of `{…}` objects become fields, and an `Error` goes under `err` with a cleaned-up stack.
+	 *
+	 * @example logger.error('Search failed', { status: 500 }, err);
+	 */
+	error: Log;
+	/**
+	 * Logs at `fatal`, the highest level: for when the server can't go on, just before it exits.
+	 * pino writes out what it holds when the process exits, so `process.exit()` right after it doesn't lose the line.
+	 * Called like `console.log`: text becomes the message (a first string with `%s`, `%d`, … is a format string),
+	 * the keys of `{…}` objects become fields, and an `Error` goes under `err` with a cleaned-up stack.
+	 *
+	 * @example logger.fatal('Could not start', err);
+	 */
+	fatal: Log;
+}
 
 // Prints an error like Node would, with colors:
 // - the name and message stand out
@@ -56,7 +84,7 @@ const prettifyError = (err: unknown) => {
 const PRETTY_OPTIONS: PrettyOptions = {
 	messageKey: 'message',
 	// err already shows the stack itself, go away pino
-	ignore: 'pid,hostname,stack',
+	ignore: 'stack',
 	// `error` is often a plain string field, so we tell pino leave that alone
 	errorLikeObjectKeys: ['err'],
 	translateTime: 'SYS:HH:MM:ss',
@@ -67,10 +95,12 @@ const PRETTY_OPTIONS: PrettyOptions = {
 	},
 	// Fix some of pino-pretty's bonkers text color choices
 	customColors: {
+		trace: 'gray',
 		debug: 'blue',
 		info: 'green',
 		warn: 'yellow',
 		error: 'red',
+		fatal: 'bgRed',
 		message: 'reset',
 		property: 'cyan',
 	},
@@ -101,8 +131,16 @@ const traceIds = () => {
 	return { trace_id: span.traceId, span_id: span.spanId, trace_flags: `0${span.traceFlags.toString(16)}` };
 };
 
-// Fixes OTel in Hono so span route-names work.
-// - example: app.use(async (c, next) => { await next(); traceRoute(routePath(c)); });
+/**
+ * Names the span of the request being handled after its route, as `GET /sok/:id`, where the Nais agent can't tell
+ * the route itself, as in Hono. Does nothing outside a request, or without the Nais agent.
+ *
+ * @example
+ * app.use(async (c, next) => {
+ * 	await next();
+ * 	traceRoute(routePath(c));
+ * });
+ */
 export const traceRoute = (route: string) => {
 	const request = fromAgent(REQUEST) as { route?: string } | undefined;
 	if (request) request.route = route;
@@ -112,13 +150,30 @@ export const traceRoute = (route: string) => {
 // and hides the rest. pino writes past console, where Vitest can't tell which test a line came from.
 // - console is looked up on each call, since Vitest swaps it in after modules may have loaded
 // - the arguments are passed on as given, for Vitest to print
+// - console has no fatal, and its trace prints a stack of where it was called: the nearest level it has stands in
 // - a pino that writes nowhere says what the level lets through, so the level means what it does in production:
-//   'trace' writes all, 'fatal' or 'silent' none of these, and a level pino doesn't know throws
+//   'trace' writes all, 'silent' none, and a level pino doesn't know throws
+const CONSOLE = {
+	trace: 'debug',
+	debug: 'debug',
+	info: 'info',
+	warn: 'warn',
+	error: 'error',
+	fatal: 'error',
+} as const satisfies Record<keyof Logger, 'debug' | 'info' | 'warn' | 'error'>;
+
 const consoleLogger = (level: string): Logger => {
 	const levels = pino({ level }, { write: () => {} });
 	const write = (name: keyof Logger): Log =>
-		levels.isLevelEnabled(name) ? (...args) => console[name](...args) : () => {};
-	return { debug: write('debug'), info: write('info'), warn: write('warn'), error: write('error') };
+		levels.isLevelEnabled(name) ? (...args) => console[CONSOLE[name]](...args) : () => {};
+	return {
+		trace: write('trace'),
+		debug: write('debug'),
+		info: write('info'),
+		warn: write('warn'),
+		error: write('error'),
+		fatal: write('fatal'),
+	};
 };
 
 // Copied from @navikt/pino-logger to avoid one more peer-dep
@@ -129,6 +184,8 @@ const pinoLogger = (level: string, destination?: pino.DestinationStream): Logger
 			timestamp: pino.stdTimeFunctions.isoTime,
 			formatters: { level: (label) => ({ level: label }) },
 			level,
+			// No pid and hostname: one process per pod, and Nais labels each line with the pod already
+			base: null,
 			mixin: traceIds,
 			serializers: { err: serializeError },
 			hooks: {
@@ -147,5 +204,10 @@ const level = process.env.LOG_LEVEL || 'info';
 const destination = async () =>
 	process.env.NODE_ENV === 'production' || process.env.NAIS_CLUSTER_NAME ? undefined : prettyStream();
 
+/**
+ * The logger, called like `console`: `logger.error('Search failed', { status: 500 }, err)`.
+ *
+ * @see {@link Logger} for how a call becomes a line
+ */
 // Vitest sets VITEST in its workers
 export const logger: Logger = process.env.VITEST ? consoleLogger(level) : pinoLogger(level, await destination());

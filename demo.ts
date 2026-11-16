@@ -1,8 +1,9 @@
-// What the logger prints in development: `pnpm dev`. It runs again when this file or src/index.ts is saved,
+// What the logger prints in development: `pnpm dev`. It runs again when this file or one in src is saved,
 // so it's also the place to try a change to the pino-pretty options
 import pino from 'pino';
 import { logger } from './src/index.ts';
 
+logger.trace('Answer from search', { hits: 3, ms: 41 });
 logger.debug('Cache hit', { key: 'offices', ageSeconds: 42 });
 
 logger.info('Listening on port', 3001);
@@ -46,3 +47,5 @@ try {
 } catch (err) {
 	logger.error('Failed to start', err);
 }
+
+logger.fatal('Could not start', new Error('listen EADDRINUSE: address already in use :::3001'));
